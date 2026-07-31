@@ -8,7 +8,7 @@
 |---|---|
 | `wind_field.json.gz` (릴리스 `wind-data`) | 지도 바람장 격자. 자동 갱신(하루 8회) |
 | `app_gate.json` | 강제 업데이트 안내 설정 |
-| `privacy-policy.html` | 개인정보처리방침 ([보기](https://bisan74-lab.github.io/bedawindy-data/privacy-policy.html)) |
+| `privacy-policy.html` | 개인정보처리방침 ([보기](https://bisan74-lab.github.io/badawindy-data/privacy-policy.html)) |
 
 ## 데이터 출처
 
