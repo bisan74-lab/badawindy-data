@@ -1,0 +1,85 @@
+name: Fishing data refresh
+
+# 바다낚시지수 전국 하루치를 모아 이 저장소의 롤링 릴리스에 올린다.
+# 앱은 이 파일 하나(약 20KB)만 받으면 되고, data.go.kr을 직접 호출하지 않는다.
+#
+# **원래 코드 저장소(BadaMobile)에서 돌던 크론을 여기로 옮겼다**
+# (2026-08-08). 자세한 이유는 `wind-data.yml`과 같다.
+#
+# **필요한 Secret은 이 저장소에 새로 등록해야 한다** — BadaMobile의
+# Secret은 이 저장소로 자동으로 넘어오지 않는다(GitHub이 값을 다시 보여주지
+# 않으므로 복사·이관도 불가능하다):
+#   DATA_GO_KR_API_KEY  공공데이터포털 인증키(BadaMobile에 등록된 것과
+#                        같은 값을 이 저장소 Settings → Secrets and
+#                        variables → Actions에 새로 등록한다)
+# 등록 전에도 워크플로 자체는 실행되지만, 수집 스크립트가 키가 비어 있으면
+# `DATA_GO_KR_API_KEY 가 비어 있습니다`로 그 자리에서 실패한다(안전하게
+# 실패 — 빈 파일이나 잘못된 데이터를 올리지 않는다).
+#
+# **저장소 간 PAT(`BADAWINDY_TK`)는 더 이상 필요 없다** — 결과를 이 저장소
+# 자신에게 올리므로 기본 `GITHUB_TOKEN`으로 충분하다.
+#
+# 실행 시각: 낚시지수는 하루 한 번 갱신된다. 그런데 **data.go.kr이 GitHub
+# 러너에 간헐적으로 응답하지 않는다** — 러너는 실행마다 다른 IP를 받으므로
+# 어떤 IP를 뽑느냐에 따라 갈리는 것으로 보인다(BadaMobile에서 실측 확인,
+# `probe_datagokr.py` 참고). 그래서 **하루 네 번** 돌린다 — 한 번 막혀도
+# 다른 시각에 다른 IP로 다시 시도하면 뚫린다. 이미 최근 파일이 있으면 첫
+# 스텝에서 건너뛰므로 횟수를 늘려도 data.go.kr을 더 두드리지는 않는다.
+#
+# 그래도 하루가 통째로 막히면, 앱이 낡은 파일을 보고 data.go.kr을 직접
+# 부른다(사용자 기기는 한국 IP라 잘 닿는다). 정확도는 그대로이고 지역 변경만
+# 몇 초 느려진다.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '10 20 * * *' # 05:10 KST
+    - cron: '10 0 * * *' # 09:10 KST
+    - cron: '10 4 * * *' # 13:10 KST
+    - cron: '10 8 * * *' # 17:10 KST
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fishing-data
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    # 재시도 백오프까지 다 돌아도 5분 안쪽이다. 그보다 오래 걸린다면
+    # 어딘가 매달려 있는 것이니 러너를 붙잡고 있지 말고 끊는다.
+    timeout-minutes: 15
+    steps:
+      - name: BadaMobile 체크아웃(수집 스크립트)
+        uses: actions/checkout@v4
+        with:
+          repository: bisan74-lab/BadaMobile
+
+      # 크론을 여러 번 돌려도 최근에 성공한 뒤에는 data.go.kr을 또 두드리지
+      # 않는다. 판단 기준은 파일의 `generated`(만든 시각)다 — "오늘 날짜가
+      # 들어 있는가"로 보면 안 된다(BadaMobile에서 2026-08-06에 날짜 기준으로
+      # 봤다가 수집을 통째로 건너뛴 적이 있다). 확인 자체가 실패하면
+      # fresh=false라 그냥 수집한다.
+      - name: 최근에 받아 둔 파일이 있는지 확인
+        id: published
+        run: python3 tool/fetch_fishing.py --check-published >> "$GITHUB_OUTPUT"
+
+      - name: 낚시지수 수집
+        if: steps.published.outputs.fresh != 'true'
+        env:
+          DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
+        run: python3 tool/fetch_fishing.py
+
+      - name: 이 저장소의 롤링 릴리스에 업로드
+        if: steps.published.outputs.fresh != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: fishing-data
+          name: 낚시지수 데이터 (자동 갱신)
+          body: |
+            앱 낚시정보용 바다낚시지수입니다(자동 갱신).
+            해양수산부 공공데이터 기반. `fishing_index.json.gz` 하나만
+            올라오며, 앱이 이 파일을 내려받아 씁니다.
+          files: fishing_index.json.gz
+          prerelease: true

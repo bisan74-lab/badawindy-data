@@ -1,0 +1,69 @@
+name: Wind data refresh
+
+# 바람장 격자 데이터를 Open-Meteo에서 받아 이 저장소의 롤링 릴리스(wind-data)
+# 에 올린다. 앱은 이 정적 파일 하나만 내려받아 지도에 쓴다(사용자 기기가
+# Open-Meteo를 직접 다지점 호출하지 않아 분당 호출 한도에 걸리지 않는다).
+#
+# **원래 코드 저장소(BadaMobile)에서 돌던 크론을 여기로 옮겼다**
+# (2026-08-08). BadaMobile이 처음엔 비공개라 크론을 거기 두고 결과만 여기로
+# 올렸는데, 지금은 BadaMobile도 공개라 그 구분이 필요 없어졌다. 여기서
+# **수집 스크립트(`tool/fetch_wind.py`)가 있는 BadaMobile을 읽기 전용으로
+# 체크아웃**해 돌리고, 결과는 **이 저장소 자신에게** 업로드한다 — 그래서
+# 예전에 필요했던 저장소 간 PAT(`BADAWINDY_TK`)가 더는 필요 없다(기본
+# `GITHUB_TOKEN`으로 같은 저장소에 릴리스를 만들 수 있다).
+#
+# **앱은 어느 저장소의 Actions가 파일을 올렸는지 모른다** — 앱이 받는 주소는
+# 항상 `github.com/bisan74-lab/badawindy-data/releases/download/wind-data/...`
+# 로 고정돼 있어서, 크론이 어디서 돌든 파일 형식·위치가 같으면 영향이 없다.
+# 파일을 못 받으면 앱은 Open-Meteo 직접 호출 → 캐시 → 합성 데이터로
+# 그대로 폴백한다(무중단 이전).
+#
+# 실행 시각은 ECMWF 공개 주기에 맞춘다. ECMWF 0.25° 오픈데이터는 하루 4런
+# (00z/06z/12z/18z)이 초기시각+약 7.8시간에 공개된다(≈01:50/07:50/13:50/19:50
+# UTC), Open-Meteo가 곧 반영. 그래서 두 겹으로 돈다:
+# - 1차(공개 ~30분 뒤): 02:20/08:20/14:20/20:20 — 새 런을 최대한 빨리 반영.
+#   더 당기면 Open-Meteo에 아직 새 런이 안 올라와 직전 런을 받아올 수 있다.
+# - 2차(공개 ~2시간 뒤): 03:45/09:45/15:45/21:45 — GitHub 크론 지연·Open-Meteo
+#   반영 지연에 대비한 재수집(같은 런이면 같은 값이라 무해).
+# 앱 캐시는 15분이라, 공개→앱 표시까지 보통 45분~1시간 안이다(Windy 수준).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '20 2,8,14,20 * * *' # 1차: 각 런 공개 직후
+    - cron: '45 3,9,15,21 * * *' # 2차: 지연 대비 재수집
+
+permissions:
+  contents: write
+
+# 앞선 실행이 아직 돌고 있으면(배치 대기로 몇 분 걸림) 겹치지 않게 한다.
+concurrency:
+  group: wind-data
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      # 수집 스크립트는 BadaMobile에만 있다(단일 출처 — 여기 복사해 두면
+      # BadaMobile 쪽만 고치고 잊어버리는 사고가 난다). BadaMobile은 공개
+      # 저장소라 토큰 없이 읽기만 하면 된다.
+      - name: BadaMobile 체크아웃(수집 스크립트)
+        uses: actions/checkout@v4
+        with:
+          repository: bisan74-lab/BadaMobile
+
+      - name: 바람장 수집(배치로 한도 준수)
+        run: python3 tool/fetch_wind.py
+
+      # 이 저장소 자신에게 올린다 — 기본 GITHUB_TOKEN으로 충분하다.
+      - name: 이 저장소의 롤링 릴리스에 업로드
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: wind-data
+          name: 바람장 데이터 (자동 갱신)
+          body: |
+            앱 지도용 바람장 격자 데이터입니다(자동 갱신). Open-Meteo ECMWF
+            IFS 0.25° 기반. `wind_field.json.gz` 하나만 올라오며, 앱이 이
+            파일을 내려받아 씁니다.
+          files: wind_field.json.gz
+          prerelease: true

@@ -1,0 +1,71 @@
+name: Point forecast refresh
+
+# 앱 지역별 대표 예보(바람·돌풍·풍향·파고·주기·수온·기온)를 모아 이 저장소의
+# 롤링 릴리스에 올린다. 홈 화면과 낚시정보 카드가 이 파일을 쓴다.
+#
+# **원래 코드 저장소(BadaMobile)에서 돌던 크론을 여기로 옮겼다**
+# (2026-08-08). 자세한 이유는 `wind-data.yml`과 같다 — BadaMobile이 지금은
+# 공개라 굳이 따로 둘 필요가 없어졌고, 저장소 간 PAT(`BADAWINDY_TK`)도
+# 필요 없어졌다.
+#
+# **지역 목록도 BadaMobile 것을 그대로 쓴다** — 수집 스크립트
+# (`tool/fetch_points.py`)가 앱의 `lib/features/locations/data/
+# sample_locations.dart`를 파이썬으로 그대로 읽는다(`tool/app_locations.py`).
+# 그래서 지역 목록을 여기 따로 복사해 두지 않는다 — 앱에서 지역을 추가하면
+# 다음 실행부터 자동으로 반영된다. 이게 BadaMobile을 매번 체크아웃해서
+# 돌리는 이유다.
+#
+# **왜 서버가 대신 받나** — 앱이 직접 받으면 지역 하나당 Open-Meteo 요청이
+# 5번 나가서(WAM 총파고/WAM 너울/GFS/수온/육상예보) 새 지역마다 1~2초가
+# 걸린다. 두 화면이 쓰는 건 날짜별 대표값 하나씩뿐이라 3시간 간격이면 충분하다.
+#
+# 실행 주기: ECMWF가 하루 4번(00/06/12/18z) 새 예보를 낸다. 공개 직후에 맞춰
+# 받고, 그 사이에도 한 번씩 더 돌려 파일이 3시간 이상 묵지 않게 한다.
+# 이 화면들은 1~2시간 정도의 시차는 문제되지 않는다.
+on:
+  workflow_dispatch:
+    inputs:
+      verify_only:
+        description: 수집 없이 공개된 파일만 검증한다
+        type: boolean
+        default: false
+  schedule:
+    - cron: '35 2,5,8,11,14,17,20,23 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: point-forecast
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: BadaMobile 체크아웃(수집 스크립트 + 지역 목록)
+        uses: actions/checkout@v4
+        with:
+          repository: bisan74-lab/BadaMobile
+
+      - name: 지점 예보 수집
+        if: inputs.verify_only != true
+        run: python3 tool/fetch_points.py
+
+      - name: 이 저장소의 롤링 릴리스에 업로드
+        if: inputs.verify_only != true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: point-forecast
+          name: 지점 예보 데이터 (자동 갱신)
+          body: |
+            앱 홈 화면·낚시정보 카드용 지역별 예보입니다(자동 갱신).
+            Open-Meteo ECMWF IFS/WAM 기반, 3시간 간격.
+            `point_forecast.json.gz` 하나만 올라옵니다.
+          files: point_forecast.json.gz
+          prerelease: true
+
+      # 올린 파일을 앱과 같은 경로로 다시 받아 **같은 시각 Open-Meteo 원본과
+      # 값을 대조**한다. 압축·재배열에서 값이 어긋나면 여기서 걸린다.
+      - name: 공개된 파일 검증
+        run: python3 tool/verify_points.py
