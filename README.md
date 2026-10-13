@@ -32,6 +32,29 @@ BadaMobile 한 곳에만 있다.
 Settings → Secrets and variables → Actions에 BadaMobile에 등록된 것과 같은
 값으로 새로 등록해야 한다(Secret 값은 저장소 간에 자동으로 넘어오지 않는다).
 
+### 60일 자동 비활성화 — 2026-10-13에 실제로 걸렸던 함정
+
+세 크론이 2026-08-08부터 두 달간 하루도 안 쉬고 성공했는데도, **GitHub가
+10월 7일에 셋 다 `disabled_inactivity`로 꺼 버렸다**(2026-10-13 사용자 제보로
+발견, 그때까지 엿새치 데이터가 못 받아지고 있었다). GitHub는 **저장소에
+60일간 커밋이 없으면** 그 저장소의 모든 예약 실행(schedule)을 자동으로 끈다
+— 그리고 이 세 크론이 저장소에 남기는 유일한 흔적은
+`softprops/action-gh-release`로 올리는 **릴리스**인데, 릴리스 갱신은 깃
+커밋이 아니라서 이 판정에 들어가지 않는다. 그래서 하루 8번씩 멀쩡히
+성공하면서도 저장소는 "60일째 조용하다"고 판정됐다 — 마지막 커밋
+(2026-08-08, 크론을 이 저장소로 옮긴 커밋)로부터 정확히 60일째였다.
+
+그래서 세 워크플로 모두 마지막에 `status/<이름>.txt`에 실행 시각만 적어
+**진짜 커밋**을 하나씩 남기는 스텝을 추가했다. 파일 내용 자체는 의미 없고,
+깃 커밋이라는 사실만 중요하다 — 이게 60일 시계를 매번 되돌린다. 가장 뜸한
+크론(point-forecast, 3시간 간격)도 60일 안에 여러 번 커밋하므로 다시 꺼질
+일이 없다.
+
+**워크플로가 다시 `disabled_inactivity`로 보이면** — Settings → Actions →
+General에서 보이거나, API로 `GET /repos/{owner}/{repo}/actions/workflows`의
+`state` 필드로 확인할 수 있다. 재활성화는 UI에서 "Enable workflow" 버튼을
+누르거나 `PUT /repos/{owner}/{repo}/actions/workflows/{id}/enable`로 한다.
+
 ## 데이터 출처
 
 - 바람·해양: [Open-Meteo](https://open-meteo.com/) (ECMWF IFS / WAM, GFS Wave)

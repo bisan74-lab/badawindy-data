@@ -22,6 +22,12 @@ name: Point forecast refresh
 # 실행 주기: ECMWF가 하루 4번(00/06/12/18z) 새 예보를 낸다. 공개 직후에 맞춰
 # 받고, 그 사이에도 한 번씩 더 돌려 파일이 3시간 이상 묵지 않게 한다.
 # 이 화면들은 1~2시간 정도의 시차는 문제되지 않는다.
+#
+# **2026-10-13 발견**: 이 크론들이 두 달간 하루도 안 쉬고 성공했는데도
+# GitHub가 세 워크플로를 전부 `disabled_inactivity`로 꺼 버렸다. 원인과
+# 대응은 `wind-data.yml` 상단 주석 참고 — 요지는 릴리스 업로드는 깃 커밋이
+# 아니라서 GitHub의 "60일 무커밋 자동 비활성화" 판정을 피하지 못한다는 것.
+# 맨 아래 "활동 기록" 스텝이 이걸 막는다.
 on:
   workflow_dispatch:
     inputs:
@@ -69,3 +75,21 @@ jobs:
       # 값을 대조**한다. 압축·재배열에서 값이 어긋나면 여기서 걸린다.
       - name: 공개된 파일 검증
         run: python3 tool/verify_points.py
+
+      # **저장소 활동 기록(60일 자동 비활성화 방지).** 자세한 이유는
+      # `wind-data.yml`과 같다 — 위 릴리스 업로드는 깃 커밋이 아니라서 GitHub의
+      # "60일 무커밋" 시계를 못 되돌리므로, 여기서 진짜 커밋을 하나 남긴다.
+      - name: 이 저장소 체크아웃(활동 기록 커밋용)
+        uses: actions/checkout@v4
+        with:
+          path: _status
+      - name: 저장소 활동 기록(60일 자동 비활성화 방지)
+        working-directory: _status
+        run: |
+          mkdir -p status
+          date -u +%Y-%m-%dT%H:%M:%SZ > status/point-forecast.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add status/point-forecast.txt
+          git commit -m "상태 갱신: point-forecast $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push

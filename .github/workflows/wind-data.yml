@@ -18,6 +18,16 @@ name: Wind data refresh
 # 파일을 못 받으면 앱은 Open-Meteo 직접 호출 → 캐시 → 합성 데이터로
 # 그대로 폴백한다(무중단 이전).
 #
+# **2026-10-13 발견: 두 달 동안 한 번도 안 쉬고 돌았는데도 전부 멈춰 있었다.**
+# GitHub는 저장소에 60일간 커밋이 없으면 그 저장소의 예약 실행(schedule)을
+# 전부 자동으로 끈다. 이 워크플로가 하는 유일한 저장소 조작은
+# `softprops/action-gh-release`로 **릴리스**를 올리는 것인데, 릴리스 갱신은
+# 깃 커밋이 아니라서 이 "60일 무활동" 판정에 들어가지 않는다 — 그래서
+# 하루 8번씩 멀쩡히 성공하면서도 저장소 자체는 "조용하다"고 판정돼, 2026-08-08
+# 마지막 커밋 뒤 정확히 60일째인 10월 7일에 세 워크플로가 전부
+# `disabled_inactivity`로 꺼졌다. 맨 아래 "활동 기록" 스텝이 매번 실제
+# 커밋을 하나씩 남겨 이 판정을 더는 안 받게 막는다.
+#
 # 실행 시각은 ECMWF 공개 주기에 맞춘다. ECMWF 0.25° 오픈데이터는 하루 4런
 # (00z/06z/12z/18z)이 초기시각+약 7.8시간에 공개된다(≈01:50/07:50/13:50/19:50
 # UTC), Open-Meteo가 곧 반영. 그래서 두 겹으로 돈다:
@@ -67,3 +77,25 @@ jobs:
             파일을 내려받아 씁니다.
           files: wind_field.json.gz
           prerelease: true
+
+      # **저장소 활동 기록(60일 자동 비활성화 방지).** 위 릴리스 업로드와
+      # 달리 이건 **진짜 깃 커밋**이라 GitHub의 "60일 무커밋" 시계를 매번
+      # 되돌린다. 하루 8번 도니 60일 안에 끊길 일이 없다. 파일 내용 자체는
+      # 의미 없고 "언제 돌았는지"만 남긴다. `status/` 아래 각 워크플로가
+      # 자기 파일만 건드려 서로 겹쳐 쓰지 않는다. 이 저장소는 위 체크아웃이
+      # BadaMobile로 가 있으므로, 커밋하려면 자기 자신을 따로 체크아웃해야
+      # 한다(별도 폴더에 — 안 그러면 위 체크아웃을 덮어쓴다).
+      - name: 이 저장소 체크아웃(활동 기록 커밋용)
+        uses: actions/checkout@v4
+        with:
+          path: _status
+      - name: 저장소 활동 기록(60일 자동 비활성화 방지)
+        working-directory: _status
+        run: |
+          mkdir -p status
+          date -u +%Y-%m-%dT%H:%M:%SZ > status/wind-data.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add status/wind-data.txt
+          git commit -m "상태 갱신: wind-data $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push
