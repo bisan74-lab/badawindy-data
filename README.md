@@ -55,6 +55,13 @@ General에서 보이거나, API로 `GET /repos/{owner}/{repo}/actions/workflows`
 `state` 필드로 확인할 수 있다. 재활성화는 UI에서 "Enable workflow" 버튼을
 누르거나 `PUT /repos/{owner}/{repo}/actions/workflows/{id}/enable`로 한다.
 
+이 활동 기록 스텝을 추가한 직후 바로 한 번 걸렸다 — wind-data는 배치 수집에
+10분 넘게 걸리는데, 그사이 더 빨리 끝나는 point-forecast·fishing-data가
+먼저 같은 브랜치(main)에 상태 커밋을 올려 버려서 wind-data의 push가
+non-fast-forward로 거절됐다. 세 워크플로 모두 push가 거절되면 최신 main을
+받아 리베이스하고 다시 시도하게 고쳤다(최대 5회) — 커밋이 자기 파일 하나만
+건드리므로 리베이스 충돌은 나지 않는다.
+
 ## 데이터 출처
 
 - 바람·해양: [Open-Meteo](https://open-meteo.com/) (ECMWF IFS / WAM, GFS Wave)
